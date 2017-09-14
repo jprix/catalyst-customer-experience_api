@@ -1,0 +1,17 @@
+{
+    "inputMessageMetadata": {
+        "flowVariables": {
+            "hybrisResponse": {
+                "connectorName": "#_custom_mule_metadata_type_#",
+                "typeId": "hybris-response"
+            },
+            "sfdcResponse": {
+                "connectorName": "#_custom_mule_metadata_type_#",
+                "typeId": "sfdc-contact-response"
+            }
+        }
+    },
+    "outputMessageMetadata": {},
+    "id": "276a6850-45bc-486a-a762-9a2f2efc3da7",
+    "version": "5.2.0.0"
+}

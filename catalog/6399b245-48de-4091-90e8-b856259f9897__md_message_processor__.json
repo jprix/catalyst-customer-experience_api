@@ -1,0 +1,17 @@
+{
+    "inputMessageMetadata": {},
+    "outputMessageMetadata": {
+        "messagePayload": {
+            "connectorName": "Hybris_OCC_Connector__Customer_or_Customer_Manager",
+            "typeId": "org.mule.modules.hybris.domain.AddressWsDTO"
+        },
+        "flowVariables": {
+            "inbound": {
+                "connectorName": "Hybris_OCC_Connector__Customer_or_Customer_Manager",
+                "typeId": "org.mule.modules.hybris.domain.AddressWsDTO"
+            }
+        }
+    },
+    "id": "6399b245-48de-4091-90e8-b856259f9897",
+    "version": "5.2.0.0"
+}

@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:anypoint-mq="http://www.mulesoft.org/schema/mule/anypoint-mq" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:hybris="http://www.mulesoft.org/schema/mule/hybris" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/apikit http://www.mulesoft.org/schema/mule/apikit/current/mule-apikit.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.1.xsd
+http://www.mulesoft.org/schema/mule/hybris http://www.mulesoft.org/schema/mule/hybris/current/mule-hybris.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/anypoint-mq http://www.mulesoft.org/schema/mule/anypoint-mq/current/mule-anypoint-mq.xsd">
+    <http:listener-config name="api-httpListenerConfig" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
+    <apikit:config name="api-config" raml="api.raml" consoleEnabled="false" doc:name="Router"/>
+    <hybris:customerManager name="Hybris_OCC_Connector__Customer_or_Customer_Manager" userName="${sap.username}" password="${sap.password}" address="https://ec2-107-23-242-119.compute-1.amazonaws.com:9002/rest/v2/apparel-uk/" tokenUrl="https://ec2-107-23-242-119.compute-1.amazonaws.com:9002/authorizationserver/oauth/token" clientId="apisero_clientid" clientSecret="apisero_clientsecret" doc:name="Hybris OCC Connector: Customer or Customer Manager"/>
+    <anypoint-mq:config name="Anypoint_MQ_Configuration" doc:name="Anypoint MQ Configuration">
+        <anypoint-mq:provider url="https://mq-us-east-1.anypoint.mulesoft.com/api/v1" clientId="23b7b7f" clientSecret="d7b049c"/>
+    </anypoint-mq:config>
+    <asynchronous-processing-strategy name="Asynchronous_Processing_Strategy" doc:name="Asynchronous Processing Strategy"/>
+    <http:request-config name="SFDC-CONTACT-API" host="localhost" port="8082" basePath="/system/" doc:name="HTTP Request Configuration"/>
+    <flow name="api-main">
+        <http:listener config-ref="api-httpListenerConfig" path="/api/*" doc:name="HTTP" />
+        <apikit:router config-ref="api-config" doc:name="APIkit Router"/>
+        <exception-strategy ref="api-apiKitGlobalExceptionMapping" doc:name="Reference Exception Strategy"/>
+    </flow>
+    <flow name="api-console">
+        <http:listener config-ref="api-httpListenerConfig" path="/console/*" doc:name="HTTP"/>
+        <apikit:console config-ref="api-config" doc:name="APIkit Console"/>
+    </flow>
+    <flow name="put:/customers/{customerId}:application/json:api-config">
+        <dw:transform-message doc:name="receive inbound JSON">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+{
+}]]></dw:set-payload>
+            <dw:set-variable variableName="inboundJson2java"><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-variable>
+            <dw:set-variable variableName="inboundJson"><![CDATA[%dw 1.0
+%output application/json
+---
+payload]]></dw:set-variable>
+        </dw:transform-message>
+        <hybris:update-user-address config-ref="Hybris_OCC_Connector__Customer_or_Customer_Manager" addressId="8796098854935" userId="#[flowVars.customerId]" doc:name="Hybris OCC Connector">
+            <hybris:address titleCode="mr" firstName="#[flowVars.inboundJson2java.firstName]" lastName="#[flowVars.inboundJson2java.lastName]" line1="#[flowVars.inboundJson2java.deliveryAddresses[0].address]" town="#[flowVars.inboundJson2java.deliveryAddresses[0].state]" postalCode="60617">
+                <hybris:country isocode="#[flowVars.inboundJson2java.deliveryAddresses[0].country]" name="	"/>
+            </hybris:address>
+        </hybris:update-user-address>
+        <dw:transform-message doc:name="set response">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"status":"address updated"
+}]]></dw:set-payload>
+        </dw:transform-message>
+        <async doc:name="Async">
+            <dw:transform-message doc:name="Set Payload">
+                <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+flowVars.inboundJson]]></dw:set-payload>
+            </dw:transform-message>
+            <anypoint-mq:publish config-ref="Anypoint_MQ_Configuration" destination="customerProfile" doc:name="BroadCast Customer Event"/>
+        </async>
+    </flow>
+    <flow name="delete:/customers/{customerId}:api-config">
+        <set-payload value="#[NullPayload.getInstance()]" doc:name="Set Payload"/>
+    </flow>
+    <flow name="get:/customers/{customerId}:api-config">
+        <enricher doc:name="Message Enricher">
+            <scatter-gather doc:name="Scatter-Gather">
+                <processor-chain>
+                    <hybris:get-order-history config-ref="Hybris_OCC_Connector__Customer_or_Customer_Manager" userId="#[flowVars.customerId]" doc:name="Hybris GetOrder History"/>
+                    <dw:transform-message doc:name="transform2json">
+                        <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+payload]]></dw:set-payload>
+                    </dw:transform-message>
+                </processor-chain>
+                <http:request config-ref="SFDC-CONTACT-API" path="sfdc-contact/max@mulesoft.com" method="GET" doc:name="GET customerInfo from SFDC"/>
+            </scatter-gather>
+            <enrich source="#[payload[1]]" target="#[flowVars.sfdcResponse]"/>
+            <enrich source="#[payload[0]]" target="#[flowVars.hybrisResponse]"/>
+        </enricher>
+        <dw:transform-message doc:name="return json response" metadata:id="454e3600-7fd8-4c1a-b5f8-6f821b18a2c1">
+            <dw:input-variable doc:sample="hybris-response.json" mimeType="application/json" variableName="hybrisResponse"/>
+            <dw:input-variable doc:sample="contact-sap-response.json" mimeType="application/json" variableName="sfdcResponse"/>
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	identifier: flowVars.sfdcResponse.sfdcContactId,
+	firstName: flowVars.sfdcResponse.firstName,
+	lastName: flowVars.sfdcResponse.lastName,
+	deliveryAddresses: flowVars.sfdcResponse.address map ((address , indexOfAddress) -> {
+		address: address."Mailing Street",
+		city: address."Mailing City",
+		state: address."Mailing State",
+		postalCode: address."Mailing PostalCode",
+		country: address."Mailing Country"
+	}),
+	orders: [{
+		orderItems: flowVars.hybrisResponse map ((hybrisResponse , indexOfHybrisResponse) -> {
+			quantity: {
+				quantityType: hybrisResponse.total.maxQuantity,
+				amount: hybrisResponse.total.value
+			},
+			item: {
+				identifier: hybrisResponse.code
+			}
+		})
+	}]
+}]]></dw:set-payload>
+        </dw:transform-message>
+    </flow>
+    <flow name="post:/customers:application/json:api-config">
+        <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+        <set-payload value="{&#xA;  &quot;identifier&quot;: &quot;deb89058-77fb-4e97-8c83-6506c38cacf8&quot;,&#xA;  &quot;firstName&quot;: &quot;Jason&quot;,&#xA;  &quot;lastName&quot;: &quot;Bourne&quot;,&#xA;  &quot;paymentMethods&quot;: [&#xA;      {&#xA;        &quot;identifier&quot;:&quot;deb89058-77fb-4e97-8c83-6506c38c4444&quot;,&#xA;        &quot;paymentMethodType&quot;:{  &#xA;          &quot;medium&quot;:&quot;CARD&quot;,&#xA;          &quot;issuer&quot;:&quot;BANK&quot;,&#xA;          &quot;name&quot;:&quot;VISA&quot;&#xA;        }&#xA;      }&#xA;  ],&#xA;  &quot;deliveryAddresses&quot;: [&#xA;      {&#xA;        &quot;identifier&quot;:&quot;deb89058-77fb-4e97-8c83-6506c3855555&quot;,&#xA;        &quot;address&quot;:&quot;Main street 122&quot;,&#xA;        &quot;city&quot;:&quot;San Francisco&quot;,&#xA;        &quot;state&quot;:&quot;California&quot;,&#xA;        &quot;postalCode&quot;:&quot;90210&quot;,&#xA;        &quot;recipient&quot;:&quot;Jason Bourne&quot;,&#xA;        &quot;country&quot;:&quot;US&quot;,&#xA;        &quot;secondaryAddress&quot;:null,&#xA;        &quot;mailStopCode&quot;:null,&#xA;        &quot;attention&quot;:null&#xA;      }&#xA;  ]&#xA;}" doc:name="Set Payload"/>
+    </flow>
+    <apikit:mapping-exception-strategy name="api-apiKitGlobalExceptionMapping">
+        <apikit:mapping statusCode="404">
+            <apikit:exception value="org.mule.module.apikit.exception.NotFoundException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{ &quot;message&quot;: &quot;Resource not found&quot; }" doc:name="Set Payload"/>
+        </apikit:mapping>
+        <apikit:mapping statusCode="405">
+            <apikit:exception value="org.mule.module.apikit.exception.MethodNotAllowedException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{ &quot;message&quot;: &quot;Method not allowed&quot; }" doc:name="Set Payload"/>
+        </apikit:mapping>
+        <apikit:mapping statusCode="415">
+            <apikit:exception value="org.mule.module.apikit.exception.UnsupportedMediaTypeException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{ &quot;message&quot;: &quot;Unsupported media type&quot; }" doc:name="Set Payload"/>
+        </apikit:mapping>
+        <apikit:mapping statusCode="406">
+            <apikit:exception value="org.mule.module.apikit.exception.NotAcceptableException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{ &quot;message&quot;: &quot;Not acceptable&quot; }" doc:name="Set Payload"/>
+        </apikit:mapping>
+        <apikit:mapping statusCode="400">
+            <apikit:exception value="org.mule.module.apikit.exception.BadRequestException" />
+            <set-property propertyName="Content-Type" value="application/json" doc:name="Property"/>
+            <set-payload value="{ &quot;message&quot;: &quot;Bad request&quot; }" doc:name="Set Payload"/>
+        </apikit:mapping>
+    </apikit:mapping-exception-strategy>
+</mule>
